@@ -1,0 +1,5 @@
+PyJWT
+flask
+python-dotenv
+xlrd
+openpyxl
