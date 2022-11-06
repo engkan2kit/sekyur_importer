@@ -1,6 +1,14 @@
 
 import openpyxl
- 
+import psycopg2
+
+conn = psycopg2.connect(
+    host="localhost",
+    database="sekyurlink",
+    user="postgres",
+    password="root")
+
+curs = conn.cursor()
 # Define variable to load the dataframe
 dataframe = openpyxl.load_workbook("details.xlsx", data_only=True)
 
@@ -36,17 +44,19 @@ for sheet in work_sheets:
         except:
             fb_msgrs = []
         
-        client_data = {
-            'client_name' : cur_row[1].value,
-            'address' : cur_row[2].value,
-            'cp1' : cur_row[3].value,
-            'cp2' : cur_row[4].value,
-            'email' : cur_row[5].value,
-            'fb_msgr' : fb_msgrs,
-            'id_type' : cur_row[7].value,
-            'installation_date' : cur_row[8].value,
-        }
-        print(client_data)
+        client_name = cur_row[1].value
+        address = cur_row[2].value
+        cp1 = cur_row[3].value
+        cp2 = cur_row[4].value
+        email = cur_row[5].value
+        fb_msgr = cur_row[6].value
+        id_type = cur_row[7].value
+        installation_date = cur_row[8].value
+
         # We can insert this row at this point.
+        curs.execute("INSERT INTO public.subscription (last_name,billing_address, cpnum_1, cpnum_2, email, fb_link,id_type, installation_address,date_created,date_updated,reg_date) VALUES(%s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)", (client_name,address,cp1,cp2,email,fb_msgr,id_type,installation_date))
+        conn.commit()
         num_rows += 1
     print(num_rows)
+curs.close()
+conn.close()
