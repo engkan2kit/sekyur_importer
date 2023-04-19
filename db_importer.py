@@ -20,7 +20,14 @@ cur = con.cursor()
 
 
 # Import NetPlan -> plans
+plan_id = 1
+sekyur_curs.execute("INSERT INTO public.plan (id, name, description, speed, unit, price, tag, tx, rx) select %s, %s, %s, %s, %s, %s, %s, %s, %s WHERE NOT EXISTS (SELECT 1 FROM public.plan WHERE name=%s AND speed=%s AND unit=%s)", 
+    (plan_id, 'UNKNOWN', 'UNKNOWN', 0, 'Mbps', 0 ,'UNKNOWN','0','0', 'UNKNOWN', 0, 'Mbps')
+)
+
+conn.commit()
 for row in con.execute("SELECT Name, Speed, Price, Tx, Rx FROM NetPlan"):
+    plan_id = plan_id + 1
     speed_unit = re.split('(\d+)',row['Speed'])
     if len(speed_unit)>1:
         speed = int(speed_unit[1])
@@ -37,22 +44,34 @@ for row in con.execute("SELECT Name, Speed, Price, Tx, Rx FROM NetPlan"):
     except ValueError:
         rx=0
     price = int(row['Price'])
-    sekyur_curs.execute("INSERT INTO public.plan (name, description, speed, unit, price, tag, tx, rx) select %s, %s, %s, %s, %s, %s, %s, %s WHERE NOT EXISTS (SELECT 1 FROM public.plan WHERE name=%s AND speed=%s AND unit=%s)", 
-        (row['Name'], row['Name'], speed, unit, price ,row['Name'], row['Tx'],row['Rx'],row['Name'], speed, unit)
+    sekyur_curs.execute("INSERT INTO public.plan (id, name, description, speed, unit, price, tag, tx, rx) select %s, %s, %s, %s, %s, %s, %s, %s, %s WHERE NOT EXISTS (SELECT 1 FROM public.plan WHERE name=%s AND speed=%s AND unit=%s)", 
+        (plan_id, row['Name'], row['Name'], speed, unit, int(price)*100 ,row['Name'], row['Tx'],row['Rx'],row['Name'], speed, unit)
     )
     conn.commit()
 
 # Import GroupManger -> groupings
+grouping_id = 1
+sekyur_curs.execute("INSERT INTO public.grouping (name) select %s, %s WHERE NOT EXISTS (SELECT 1 FROM public.grouping WHERE name=%s)", 
+    (grouping_id, 'UNKNOWN', 'UNKNOWN')
+)
+conn.commit()
 for row in con.execute("SELECT GroupCode, Name FROM GroupManager"):
-    sekyur_curs.execute("INSERT INTO public.grouping (name) select %s WHERE NOT EXISTS (SELECT 1 FROM public.grouping WHERE name=%s)", 
-        ( row['Name'],row['Name'])
+    grouping_id = grouping_id + 1
+    sekyur_curs.execute("INSERT INTO public.grouping (name) select %s, %s WHERE NOT EXISTS (SELECT 1 FROM public.grouping WHERE name=%s)", 
+        (grouping_id, row['Name'],row['Name'])
     )
     conn.commit()
 
 # Import Servers -> server
+server_id = 1
+sekyur_curs.execute("INSERT INTO public.server (id, location, host_addr, port, \"user\", password) select %s, %s, %s, %s, %s, %s WHERE NOT EXISTS (SELECT 1 FROM public.server WHERE location=%s)", 
+        (server_id, row['Location'], row['Address'], row['Port'], row['User'], row['Password'], row['Location'])
+    )
+conn.commit()
 for row in con.execute("SELECT Location, Address, Port, User, Password FROM Servers"):
-    sekyur_curs.execute("INSERT INTO public.server (location, host_addr, port, \"user\", password) select %s, %s, %s, %s, %s WHERE NOT EXISTS (SELECT 1 FROM public.server WHERE location=%s)", 
-        ( row['Location'], row['Address'], row['Port'], row['User'], row['Password'], row['Location'])
+    server_id = server_id + 1
+    sekyur_curs.execute("INSERT INTO public.server (id, location, host_addr, port, \"user\", password) select %s, %s, %s, %s, %s, %s WHERE NOT EXISTS (SELECT 1 FROM public.server WHERE location=%s)", 
+        (server_id, row['Location'], row['Address'], row['Port'], row['User'], row['Password'], row['Location'])
     )
     conn.commit()
 
@@ -98,8 +117,8 @@ for row in cur.execute("SELECT AccountName, ClientName, ServerLocation, Address,
                     date_entry = datetime.datetime.strptime(row['DateEntry'], '%m-%d-%y')
                 except ValueError:
                     date_entry = datetime.datetime.now()
-    sekyur_curs.execute("INSERT INTO public.subscription (email, billing_address, fb_link, cpnum_1, status_id, date_created, date_updated, reg_date, installation_address, plan_id, account_num, server_id, grouping_id, name, sub_mode, dc_mode, conn_type, password, note, acc_name) \
-        values(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (account_num) DO UPDATE \
+    sekyur_curs.execute("INSERT INTO public.subscription (id, email, billing_address, fb_link, cpnum_1, status_id, date_created, date_updated, reg_date, installation_address, plan_id, server_id, grouping_id, name, sub_mode, dc_mode, conn_type, password, note, acc_name) \
+        values(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (id) DO UPDATE \
         SET \
         email = excluded.email, \
         billing_address = excluded.billing_address, \
@@ -120,12 +139,12 @@ for row in cur.execute("SELECT AccountName, ClientName, ServerLocation, Address,
         password = excluded.password, \
         note = excluded.note, \
         acc_name = excluded.acc_name", 
-        (   row['Email'], row['Address'],
+        (   
+            row['AccountNumber'], row['Email'], row['Address'],
             row['Facebook'], row['ContactNumber'],
             status_id, date_entry,
             date_entry, date_entry,
-            row['Address'], plan_id,
-            row['AccountNumber'], server_id,
+            row['Address'], plan_id, server_id,
             grouping_id, row['ClientName'],
             row['SubscriptionMode'], row['DisconnectionMode'],
             row['ConnectionType'], row['Password'],
