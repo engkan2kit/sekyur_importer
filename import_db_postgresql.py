@@ -2,6 +2,22 @@ import sqlite3
 import psycopg2
 import re
 import datetime
+import openpyxl
+
+# Make a regular expression
+# for validating an Email
+regex = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,7}\b'
+# Define a function for
+# for validating an Email
+def check(email):
+ 
+    # pass the regular expression
+    # and the string into the fullmatch() method
+    if(re.fullmatch(regex, email)):
+        return True
+ 
+    else:
+        return False
 
 # Import NetPlan -> plans
 def import_plans (source_db_connection, destination_db_connection):
@@ -9,7 +25,6 @@ def import_plans (source_db_connection, destination_db_connection):
     destination_db_cursor = destination_db_connection.cursor()
     plan_id = 1
     for row in source_db_connection.execute("SELECT Name, Speed, Price, Tx, Rx FROM NetPlan"):
-        plan_id = plan_id + 1
         speed_unit = re.split('(\d+)',row['Speed'])
         if len(speed_unit)>1:
             speed = int(speed_unit[1])
@@ -30,6 +45,7 @@ def import_plans (source_db_connection, destination_db_connection):
             (plan_id, row['Name'], row['Name'] + " " + str(speed) + " " + unit, int(speed), unit, int(price)*100, row['Tx'],row['Rx'], row['Name'], int(speed), unit,)
         )
         destination_db_connection.commit()
+        plan_id = plan_id + 1
 
 # Import GroupManger -> groupings
 def import_groupings (source_db_connection, destination_db_connection):
@@ -58,19 +74,28 @@ def import_servers (source_db_connection, destination_db_connection):
 
 # Import client -> subscription
 def import_clients (source_db_connection, destination_db_connection, client_servers=[]):
+    wb = openpyxl.Workbook()
+    sheet = wb.active
+    excel_row_header = ['AccountNumber', 'AccountName', 'ClientName', 'with ñ', 'valid mobile', 'valid mobile alt', 'valid email']
+    sheet.append(excel_row_header)
     source_db_cursor = source_db_connection.cursor()
     client_count = 0
     for row in source_db_cursor.execute("SELECT AccountName, ClientName, ServerLocation, Address, Facebook, ContactNumber, Email, DateEntry, NetPlan, AmountDue, DueDate, LatestReceipt, Status, PaymentStatus, Note, LatestBilling, SubscriptionCover, IPaddress, Balance, Password, Grouping, ConnectionType, AccountNumber, Profile, DisconnectionMode, SubscriptionMode, AuthenticationMode FROM client"):
+        if (row['ClientName'].count('ñ')>0):
+            withNye = True
+        else:
+            withNye = False
+
         destination_db_cursor = destination_db_connection.cursor()
+
         try:
             destination_db_cursor.execute("SELECT id FROM public.subscription_status WHERE status=%s", (row["Status"],))
             tmp = destination_db_cursor.fetchone()
             status_id = tmp[0]
         except (TypeError, ValueError, psycopg2.ProgrammingError) as e:
-            status_id=0
+            status_id=1
 
         try:
-            print(row["Profile"])
             destination_db_cursor.execute("SELECT id FROM public.plan WHERE name ILIKE %s", (row["Profile"],))
             tmp = destination_db_cursor.fetchone()
             plan_id = tmp[0]
@@ -82,21 +107,21 @@ def import_clients (source_db_connection, destination_db_connection, client_serv
             tmp = destination_db_cursor.fetchone()
             subscription_mode_id = tmp[0]
         except (TypeError, ValueError, psycopg2.ProgrammingError) as e:
-            subscription_mode_id=0
+            subscription_mode_id=1
 
         try:
             destination_db_cursor.execute("SELECT id FROM public.disconnection_mode WHERE name=%s", (row["DisconnectionMode"],))
             tmp = destination_db_cursor.fetchone()
             disconnection_mode_id = tmp[0]
         except (TypeError, ValueError, psycopg2.ProgrammingError) as e:
-            disconnection_mode_id=0
+            disconnection_mode_id=1
 
         try:
             destination_db_cursor.execute("SELECT id FROM public.connection_type WHERE name=%s", (row["ConnectionType"],))
             tmp = destination_db_cursor.fetchone()
             connection_type_id = tmp[0]
         except (TypeError, ValueError, psycopg2.ProgrammingError) as e:
-            connection_type_id=0
+            connection_type_id=1
 
         destination_db_cursor.close()
         if client_servers and row["ServerLocation"] not in client_servers:
@@ -119,6 +144,7 @@ def import_clients (source_db_connection, destination_db_connection, client_serv
         destination_db_cursor.execute(
             """
                 INSERT INTO subscription (
+                    id,
                     status_id,
                     plan_id,
                     connection_type_id,
@@ -127,7 +153,6 @@ def import_clients (source_db_connection, destination_db_connection, client_serv
                     name,
                     note,
                     server_name,
-                    grouping_name,
                     registration_date,
                     activation_date
                 )
@@ -148,6 +173,7 @@ def import_clients (source_db_connection, destination_db_connection, client_serv
                 RETURNING subscription.id
             """,
             (   
+                row['AccountNumber'],
                 status_id,
                 plan_id,
                 connection_type_id,
@@ -156,85 +182,121 @@ def import_clients (source_db_connection, destination_db_connection, client_serv
                 row['ClientName'],
                 row['Note'],
                 row['ServerLocation'],
-                row['Grouping'],
                 row['DateEntry'],
                 row['DateEntry']
             )
         )
-        subscription_id = destination_db_cursor.fetchone()[0]
+        contacts = re.split('; |, |/', row['ContactNumber'])
+        mobileOK = True
+        mobileAltOK = True
+        if (len(contacts)>1):
+            if (not (6<=len(contacts[0])<=15)):
+                mobileOK = contacts[0]
+                contacts[0] = None
 
-        destination_db_cursor.execute(
-            """
-                INSERT INTO subscriber_detail (
-                    id,
+            if (not (6<=len(contacts[1])<=15)):
+                mobileAltOK = contacts[1]
+                contacts[1] = None
+        else:
+            if (6<=len(row['ContactNumber'])<=15):
+                mobileOK = True
+                mobileAltOK = False
+                contacts= [row['ContactNumber'], None]
+            else:
+                mobileOK = row['ContactNumber']
+                mobileAltOK = False
+                contacts = [None, None]
+        if (check(row['Email'])):
+            email = row['Email']
+            emailOK = True
+        else:
+            email = "N/A"
+            emailOK = row['Email']
+        try:
+            subscription_id = destination_db_cursor.fetchone()[0]
+        except (TypeError):
+            subscription_id = None
+
+        if subscription_id is not None:
+            destination_db_cursor.execute(
+                """
+                    INSERT INTO subscriber_detail (
+                        id,
+                        email,
+                        mobile,
+                        mobile_alt,
+                        facebook_url,
+                        address
+                    )
+                    VALUES (
+                        %s,
+                        %s,
+                        %s,
+                        %s,
+                        %s,
+                        %s
+                    )
+                    RETURNING subscriber_detail.id
+                """,
+                (   
+                    subscription_id,
                     email,
-                    mobile,
-                    facebook_url,
+                    contacts[0],
+                    contacts[1],
+                    row['Facebook'],
+                    row['Address']
+                )
+            )
+
+            destination_db_cursor.execute(
+                """
+                    INSERT INTO subscription_profile (
+                        id,
+                        mode,
+                        username,
+                        password
+                    )
+                    VALUES (
+                        %s,
+                        %s,
+                        %s,
+                        %s
+                    )
+                    RETURNING subscription_profile.id
+                """, 
+                (
+                    subscription_id,
+                    row['AuthenticationMode'],
+                    row['AccountName'],
+                    row['Password']
+                )
+            )
+            destination_db_cursor.execute(
+                """
+                INSERT INTO subscription_installation (
+                    id,
+                    date,
                     address
                 )
                 VALUES (
                     %s,
                     %s,
-                    %s,
-                    %s,
                     %s
                 )
-                RETURNING subscriber_detail.id
-            """,
-            (   
-                subscription_id,
-                row['Email'],
-                row['ContactNumber'],
-                row['Facebook'],
-                row['Address']
-            )
-        )
-        destination_db_cursor.execute(
-            """
-                INSERT INTO subscription_profile (
-                    id,
-                    mode,
-                    username,
-                    password
+                RETURNING subscription_installation.id
+                """, 
+                (
+                    subscription_id,
+                    row['DateEntry'],
+                    row['Address'],
                 )
-                VALUES (
-                    %s,
-                    %s,
-                    %s,
-                    %s
-                )
-                RETURNING subscription_profile.id
-            """, 
-            (
-                subscription_id,
-                row['AuthenticationMode'],
-                row['AccountName'],
-                row['Password']
             )
-        )
-        destination_db_cursor.execute(
-            """
-            INSERT INTO subscription_installation (
-                id,
-                date,
-                address
-            )
-            VALUES (
-                %s,
-                %s,
-                %s
-            )
-            RETURNING subscription_installation.id
-            """, 
-            (
-                subscription_id,
-                row['DateEntry'],
-                row['Address'],
-            )
-        )
+            destination_db_connection.commit()
         client_count = client_count + 1
-        
-        destination_db_connection.commit()
+        excel_row = [row['AccountNumber'], row['AccountName'], row['ClientName'], withNye, mobileOK, mobileAltOK, emailOK]
+        sheet.append(excel_row)
+        wb.save("import_logs.xlsx")
+            
 
 if __name__ == '__main__':
 
@@ -256,7 +318,6 @@ if __name__ == '__main__':
     source_db_cursor = source_db_connection.cursor()
 
     import_servers(source_db_connection, destination_db_connection)
-    import_groupings(source_db_connection, destination_db_connection)
     import_plans(source_db_connection, destination_db_connection)
     
     import_clients(source_db_connection, destination_db_connection, client_servers)

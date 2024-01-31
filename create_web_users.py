@@ -7,8 +7,8 @@ def create_web_user(db_connection):
     query = """
     WITH created_user AS (
         INSERT INTO "user" (username, password, email, phone, verified)
-        SELECT s.id, (SELECT crypt(s.id, gen_salt('bf'))), email, cpnum_1, true
-        FROM subscription s
+        SELECT s.id, (SELECT crypt(s.id, gen_salt('bf'))), email, mobile, true
+        FROM subscriber_detail s
         ON CONFLICT (username)
         DO NOTHING
         RETURNING "user".id as uid, username as sid
@@ -41,3 +41,4 @@ if __name__ == '__main__':
 
     db_cursor.close()
     db_connection.close()
+    print("Done!")
